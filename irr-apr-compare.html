@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IRR / APR 服务端对账页</title>
+  <link rel="stylesheet" href="./irr-apr-calculator/styles.css">
+</head>
+<body>
+  <div class="header">
+    <div class="header-bar">
+      <div>
+        <h1>IRR / APR 服务端对账页</h1>
+        <p>这里专门负责调用服务端试算接口、导入 JSON，并与本地计算结果做逐期对账。</p>
+      </div>
+      <button type="button" class="btn btn-outline" id="back-to-calculator">返回主计算页</button>
+    </div>
+  </div>
+
+  <div class="container">
+    <div class="card">
+      <div class="card-header">对账说明 <span class="tag tag-blue">独立页面</span></div>
+      <div class="card-body">
+        <div class="info-box info-plain">
+          从主计算页跳转过来时，当前输入参数、费用项和模式会自动保留。<br>
+          你可以在这里继续调整参数，再调用接口或导入服务端 JSON 做逐期核对。
+        </div>
+      </div>
+    </div>
+
+    <div class="workspace">
+      <div class="workspace-sidebar">
+        <div class="card sticky-card">
+          <div class="card-header">输入参数 <span class="tag tag-green">左侧配置区</span></div>
+          <div class="card-body">
+            <div id="validation-area"></div>
+
+            <div class="grid g5">
+              <div class="field">
+                <label>借款金额 (loanAmount)</label>
+                <input type="number" id="loanAmount" value="3000000" min="0">
+                <span class="hint">单位与后端保持一致，例如“分”。</span>
+              </div>
+              <div class="field">
+                <label>首付金额 (downPayment)</label>
+                <input type="number" id="downPayment" value="0" min="0">
+                <span class="hint">实际本金 = 借款金额 - 首付。</span>
+              </div>
+              <div class="field">
+                <label>实际本金 (Principal)</label>
+                <input type="text" id="d-principal" class="derived" readonly>
+              </div>
+              <div class="field">
+                <label>借款期数 (periodNo)</label>
+                <input type="number" id="periods" value="12" min="1">
+              </div>
+              <div class="field">
+                <label>分期类型 (termUnit)</label>
+                <select id="termUnit">
+                  <option value="M">月分期 (360 / 30)</option>
+                  <option value="W">周分期 (365 / 7)</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="section-label">IRR 专用费率 <span class="tag tag-orange">IRR</span></div>
+            <div class="grid g4">
+              <div class="field">
+                <label>IRR R3 利率</label>
+                <input type="number" id="irr_r3" step="0.001" value="0.408">
+                <span class="hint">例如 0.408 表示 40.8%。</span>
+              </div>
+              <div class="field">
+                <label>IRR R1 年化总费率</label>
+                <input type="number" id="irr_r1" step="0.0001" value="0.4788">
+                <span class="hint">用于计算 totalLoanFee。</span>
+              </div>
+            </div>
+
+            <div class="section-label">APR 专用费率 <span class="tag tag-blue">APR</span></div>
+            <div class="grid g4">
+              <div class="field">
+                <label>APR R1 年化总费率</label>
+                <input type="number" id="r1" step="0.0001" value="0.4788">
+                <span class="hint">例如 0.36 表示 36%。</span>
+              </div>
+              <div class="field">
+                <label>APR R3 利息利率</label>
+                <input type="number" id="r3" step="0.001" value="0.06">
+                <span class="hint">用于计算每期利息。</span>
+              </div>
+            </div>
+
+            <div class="section-label">保险与附加参数</div>
+            <div class="grid g5">
+              <div class="field">
+                <label>保险年化费率</label>
+                <input type="number" id="insRate" step="0.001" value="0">
+              </div>
+              <div class="field">
+                <label>保险渠道费率</label>
+                <input type="number" id="insServiceRate" step="0.001" value="0">
+              </div>
+              <div class="field">
+                <label>termQuantity</label>
+                <input type="number" id="termQuantity" value="1" min="1">
+              </div>
+              <div class="field">
+                <label>综合服务费率</label>
+                <input type="number" id="compServiceRate" step="0.01" value="0.01">
+                <span class="hint">每期综合服务费 = 计息基数 × 费率。</span>
+              </div>
+            </div>
+
+            <div class="section-label">
+              附加费用项
+              <span class="tag tag-orange">费用语义与展示解耦</span>
+            </div>
+            <div class="fee-table-wrap">
+              <table class="fee-table">
+                <thead>
+                  <tr>
+                    <th style="width: 22%;">费用名称</th>
+                    <th style="width: 18%;">总金额</th>
+                    <th style="width: 18%;">参与规则</th>
+                    <th style="width: 30%;">分摊说明</th>
+                    <th style="width: 12%;">操作</th>
+                  </tr>
+                </thead>
+                <tbody id="fee-items-body"></tbody>
+              </table>
+            </div>
+            <button type="button" class="btn btn-blue" id="add-fee-item" style="font-size:12px;padding:5px 16px;">+ 添加费用项</button>
+
+            <div class="section-label">计费基数 <span class="tag tag-green">自动计算</span></div>
+            <div class="grid g5">
+              <div class="field">
+                <label>参与利息费用合计</label>
+                <input type="text" id="d-interest-base-fees" class="derived" readonly>
+              </div>
+              <div class="field">
+                <label>参与服务费费用合计</label>
+                <input type="text" id="d-service-base-fees" class="derived" readonly>
+              </div>
+              <div class="field">
+                <label>计息基数 Bᵢ</label>
+                <input type="text" id="d-interest-base-total" class="derived" readonly>
+              </div>
+              <div class="field">
+                <label>服务费基数 Bₛ</label>
+                <input type="text" id="d-service-base-total" class="derived" readonly>
+              </div>
+            </div>
+
+            <div class="section-label">派生参数 <span class="tag tag-green">自动计算</span></div>
+            <div class="grid g5">
+              <div class="field">
+                <label>yearDayCount</label>
+                <input type="text" id="d-ydc" class="derived" readonly>
+              </div>
+              <div class="field">
+                <label>termDayCount</label>
+                <input type="text" id="d-tdc" class="derived" readonly>
+              </div>
+              <div class="field">
+                <label>APR 月利率 = R1 / 12</label>
+                <input type="text" id="d-pmr" class="derived" readonly>
+              </div>
+              <div class="field">
+                <label>APR 服务费率 = R1 - R3</label>
+                <input type="text" id="d-sfr" class="derived" readonly>
+              </div>
+              <div class="field">
+                <label>APR 日利率 = floor(R1 / yearDayCount, 5)</label>
+                <input type="text" id="d-r6" class="derived" readonly>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="workspace-main">
+        <div class="card">
+          <div class="card-header">本地计算结果</div>
+          <div class="card-body">
+            <div class="mode-switch">
+              <button type="button" class="mode-button active-irr" data-mode="irr">IRR 等额本息</button>
+              <button type="button" class="mode-button" data-mode="apr">APR 等本等息</button>
+              <button type="button" class="mode-button" data-mode="both">双模式对比</button>
+            </div>
+            <div id="result-area"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">服务端对账 <span class="tag tag-blue">listing-debt-server</span></div>
+          <div class="card-body">
+            <div class="section-label">方式一：调用 API</div>
+            <div class="compare-input">
+              <input type="text" id="api-url" value="" placeholder="服务端试算接口地址">
+              <button type="button" class="btn btn-blue" id="call-api" style="white-space:nowrap;padding:7px 20px;font-size:13px;">调用 API</button>
+            </div>
+
+            <div class="section-label">方式二：导入 JSON</div>
+            <textarea class="compare-json" id="server-json" placeholder='粘贴服务端返回的完整 JSON，例如：{"code":0,"message":"success","data":{"repaymentItems":[]}}'></textarea>
+            <div style="margin-top:10px;">
+              <button type="button" class="btn btn-blue" id="import-json" style="font-size:13px;padding:7px 20px;">导入 JSON 并对账</button>
+            </div>
+
+            <div id="compare-result"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="./irr-apr-calculator/src/app.mjs"></script>
+</body>
+</html>
